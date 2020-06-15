@@ -1,0 +1,394 @@
+---
+title: " **Analysis of the level of DNA methylation in a dataset with R**"
+author: Federica Brando
+date: 13/06/20
+abstract: "This report will describe the pipeline followed to inspect a DNA methylation dataset in order to observe the level of methylation in the sample."
+output:
+    html_notebook:
+        css: style.css
+        toc: true
+        toc_depht: true
+        toc_float: true
+        number_sections: true
+---
+
+# **Loading raw data**
+The first step of the workflow is to load and read the raw data with ```minfi``` library. ```minfi``` is a very useful and complete library of tools for analyzing and visualizing Illumina methylation array data with a special focus on the 450k array.
+```{r step 1 - reading samplesheet}
+rm(list=ls())  # we clean the workspace
+setwd("~/PycharmProjects/drd/Report")  # we set the working directory
+suppressMessages(library(minfi))  # we load minfi package
+load('~/PycharmProjects/drd/Lesson2/Illumina450Manifest_clean.RData')  # we load the illumina manifest
+
+baseDir <- ("~/PycharmProjects/drd/Report/Input_data")  # we set the data directory
+targets <- read.metharray.sheet(baseDir)  # reading the sample sheet containing pheno-data
+targets
+```
+Then we create a variable in which we store the ```RGChannelSet``` object.
+```{r step 1 - RGset}
+# reading methylation array data {class:RGChannelSet}
+RGset <- suppressWarnings(read.metharray.exp(targets = targets))
+RGset
+```
+# **Red and Green fluorescence**
+The second step is to create the ```data.frame``` for Red and Green respectively to store each fluorescence.
+```{r step 2 RG dataframes}
+# Red dataframe
+Red <- data.frame(getRed(RGset))
+head(Red)
+
+# Green dataframe
+Green <- data.frame(getGreen(RGset))
+head(Green)
+```
+# **Fluorescence inspection**
+>**Q**: What are the Red and Green fluorescence for ```42639338```?
+
+In order answer this question we can inspect the ```data.frame``` just created with the following:
+```{r step 3}
+Red[rownames(Red)=="42639338",]
+
+Green[rownames(Green)=="42639338",]
+```
+## _Optional_: Design probe inspection
+We can retrieve information on the probe design by checking the address we previously used to the manifest file and eventually, if design probe is Type I, report the color.
+```{r step 3 Design probe inspection}
+Addr42639338 <- Illumina450Manifest_clean[Illumina450Manifest_clean$AddressA_ID=="42639338",]
+Addr42639338$Infinium_Design_Type
+```
+## _Table recap_
+|Sample | Red fl. | Green fl. | Design Type|
+|:-----:|:-------:|:---------:|:----------:|
+|X5775278051_R01C01| 14046 | 12057 | II|
+|X5775278051_R04C02| 17095 | 12635 | II|
+|X5775278078_R02C01| 10490 | 10730 | II|
+|X5775278078_R05C01| 14706 | 12498 | II|
+|X5775278078_R05C02| 12822 | 12067 | II|
+|X5930514034_R01C02| 13961 | 10900 | II|
+|X5930514035_R04C03| 16314 | 12788 | II|
+|X5930514035_R06C02| 15172 | 14474 | II|
+# **Creating methylation signal object**
+Next step is to convert the ```RGChannelSet``` object into a ```MethylSet``` object. This object contains the methylated and unmethylated signal of our data.
+```{r step 4}
+MSet.raw <- preprocessRaw(RGset)  # Create a MSet.raw object
+MSet.raw
+```
+# **Quality check**
+Next step in the workflow is to evaluate the quality of the data. We can do this by performing 3 types of quality checks:
+
+1. __QCplot__
+2. __Negative controls intensity check__
+3. __calculate detection pValues__
+
+## _QCplot_
+
+QCplot is a plot in which we plot the median of the methylation signal and the median of the unmethylation signal for
+ each sample. If the samples have good quality, they would cluster together in the upper part of the plot. In the
+  lower region of the plot we can find low-quality samples.
+```{r step 5 QCplot, fig.align="center", fig.width=5, fig.height=5, fig.cap="Figure 1: QC plot"}
+qc <- getQC(MSet.raw)
+qc
+plotQC(qc)
+```
+In this case we can affirm that samples have **good quality**, indeed they are located in the upper region of the plot, so they have high median methylation and unmethylation.
+
+## _Negative control intensity check_
+These check is useful to understand the quality of negative controls. If it returns high green or red fluorescence then the background fluorescence is indistinguishable from the real signal and indicates poor DNA quality. It should not be more than 10 units.
+```{r step 5 Negative control, fig.align="center", fig.width=5, fig.height=5, fig.cap="Figure 2: Negative control"}
+controlStripPlot(RGset, controls="NEGATIVE")
+```
+In our data we can observe how every sample is below 10, therefore all controls can be considered of good quality.
+
+## _Detection of pValues_
+>**Q**:for each sample, how many probes have a detection p-value higher than the threshold ```0.05```?
+
+This method of checking the quality of the probes is useful because it points out the probability that the signal we are observing in the data is different from the background. The null hypotheses is that signal are equal, the alternative hypotheses states that the signals differ from each other. Indeed, a small p-value indicates good position, we can reject the null hypotheses and state that the signal is different from the background with high confidence, otherwise we cannot.
+
+```{r step 5 pValues detection}
+detP <- detectionP(RGset)
+
+failed <- detP>0.05
+dim(failed)
+summary(failed)
+```
+To answer our initial question we can summarize the results in this table:
+
+Sample | Failed
+|:------:|:-------|
+5775278051_R01C01 | 247
+5775278051_R04C02 | 210
+5775278078_R02C01 | 264
+5775278078_R05C01 | 413
+5775278078_R05C02 | 385
+5930514034_R01C02 | 91
+5930514035_R04C02 | 46
+5930514035_R06C02 | 115
+# Computing raw $\beta$ and M values
+
+Raw $\beta$  and M are computed as: $\beta = \frac{M}{M+U}$ and $M = \log_{2}(\frac{M}{U})$. $\beta$ is a percentage that express the leverl of methylation at a given CpG site, it is a variable between 0 and 1, where 1 stands for completely methylated and 0 stands for the opposite. M, instead, is a variable that can take any value of the real line.
+
+We can plot the densities of continuous variable of $\beta$ and M to observe the level of methylation in the sample. In our sample we can subset the dataset according to the group, ```DS``` and ```WT```.
+```{r step 6}
+# reading the data
+csvtargets <- read.csv("Input_data/Samplesheet_report_2020.csv")
+```
+```{r step 6 WT}
+#WT
+WT <- csvtargets[csvtargets$Group=="WT", "Basename"]
+WTSet <- MSet.raw[,colnames(MSet.raw) %in% WT]
+BetaWT <- getBeta(WTSet)  # getting beta values
+M_WT <- getM(WTSet)  # getting M values
+meanBeta_WT <- apply(BetaWT, 1, mean, na.rm=T)
+meanM_WT <- apply(M_WT, 1, mean, na.rm=T)
+d_meanBeta_WT <- density(meanBeta_WT)
+d_meanM_WT <- density(meanM_WT)
+
+#DS
+DS <- csvtargets[csvtargets$Group=="DS", "Basename"]
+DSSet <- MSet.raw[,colnames(MSet.raw) %in% DS]
+BetaDS <- getBeta(DSSet)
+M_DS <- getM(DSSet)
+meanBeta_DS <- apply(BetaDS, 1, mean, na.rm=T)
+meanM_DS <- apply(M_DS, 1, mean, na.rm=T)
+d_meanBeta_DS <- density(meanBeta_DS)
+d_meanM_DS <- density(meanM_DS)
+
+```
+```{r step 6 plot, fig.align="center", fig.width=5, fig.height=5, fig.cap="Figure 3: (left) $\beta$ plot for subset WT and DS, (right) M plot for subset WT and DS"}
+par(mfrow=c(1,2))
+plot(d_meanBeta_WT,main="Density of Beta Values",col="blue", ylim = c(-0.01, 3.9))
+lines(d_meanBeta_DS, col="red")
+legend("topright", legend=c("WT", "DS"),
+       col=c("blue", "red"), lty=1:1, cex=0.5)
+plot(d_meanM_WT,main="Density of M Values",col="blue")
+lines(d_meanM_DS, col='red')
+legend("topright", legend=c("WT", "DS"),
+       col=c("blue", "red"), lty=1:1, cex=0.5)
+```
+# Normalization
+Data as it is is not comparable, indeed we need to normalize in order to get rid of technical variation and sistematic bias. We will normalize using the function ```preprocessQuantile```, this function is a stratified quantile normalization, it stratifies the probe by region and returns the $\beta$ values normalized. We will, then, compare raw data from infinium I and II design with normalized data.
+
+Normalize the data using the function ```preprocessQuantile``` and compare raw data and normalized data. Produce a plot with 6 panels in which, for both raw and normalized data, you show the density plots of beta mean values according to the chemistry of the probes, the density plot of beta standard deviation values according to the chemistry of the probes and the boxplot of beta values. Provide a short comment regarding the changes you observe.
+
+First, we retrieve all the raw $\beta$ values from ```MSet.raw```, then we normalize data from ```RGset``` and extract normalized $\beta$ from it.
+```{r step 7}
+beta <- getBeta(MSet.raw)
+
+preprocessQuantile_results <- suppressWarnings(suppressMessages(preprocessQuantile(RGset)))
+preprocessQuantileBeta <- getBeta(preprocessQuantile_results)
+summary(preprocessQuantileBeta)
+```
+Then we extract Infinium I and II probe raw and normalized $\beta$ .
+
+## Raw data
+Infinium design is stored under the ```Infinium_Design_Type``` entry in the ```Illumina450Manifest_clean```. We extract raw data from there and cross-search the data from the ```beta``` and then we compute ```mean``` and ```standard deviation``` on both subsets.
+```{r step 7 InfI}
+# Infinium design I
+InfI_df <- Illumina450Manifest_clean[Illumina450Manifest_clean$Infinium_Design_Type=="I",]
+InfI_df <- droplevels(InfI_df)
+BetaI <- beta[rownames(beta) %in% InfI_df$IlmnID,]
+meanBeta_I <- apply(BetaI,1,mean)
+sdBeta_I <- apply(BetaI, 1, sd)
+d_meanBetaI <- density(meanBeta_I, na.rm=T)
+d_sdBetaI <- density(sdBeta_I,na.rm=T)
+```
+
+We do the same with ```Infinium design II```.
+```{r step 7 InfII raw}
+# Infinium design II
+InfII_df <- Illumina450Manifest_clean[Illumina450Manifest_clean$Infinium_Design_Type=="II",]
+InfII_df <- droplevels(InfII_df)
+BetaII <- beta[rownames(beta) %in% InfII_df$IlmnID,]
+meanBeta_II <- apply(BetaII,1,mean)
+sdBeta_II <- apply(BetaII,1,sd)
+d_meanBetaII <- density(meanBeta_II, na.rm=T)
+d_sdBetaII <- density(sdBeta_II, na.rm=T)
+```
+
+## Normalized data
+The normalization process consists in the cross-search of the ```IlmnID``` associated to the Infinium design type and the normalized $\beta$ values. Then ```mean``` and ```standard deviation``` are computed on both subsets.
+```{r step 7 InfI Norm}
+# Infinium design I
+preprocessQuantileBeta_I <- preprocessQuantileBeta[rownames(preprocessQuantileBeta) %in% InfI_df$IlmnID,]
+meanBeta_preprocessQuantile_I <- apply(preprocessQuantileBeta_I, 1, mean)
+d_meanBeta_preprocessQuantile_I <- density(meanBeta_preprocessQuantile_I, na.rm=T)
+sdBeta_preprocessQuantile_I <- apply(preprocessQuantileBeta_I, 1, sd)
+d_sdBeta_preprocessQuantile_I <- density(sdBeta_preprocessQuantile_I, na.rm=T)
+```
+
+We do the same for ```Infinium design II```
+```{r step 7 InfII norm}
+# Infinium design II
+preprocessQuantileBeta_II <- preprocessQuantileBeta[rownames(preprocessQuantileBeta) %in% InfII_df$IlmnID,]
+meanBeta_preprocessQuantile_II <- apply(preprocessQuantileBeta_II, 1, mean)
+d_meanBeta_preprocessQuantile_II <- density(meanBeta_preprocessQuantile_II, na.rm=T)
+sdBeta_preprocessQuantile_II <- apply(preprocessQuantileBeta_II, 1, sd)
+d_sdBeta_preprocessQuantile_II <- density(sdBeta_preprocessQuantile_II, na.rm=T)
+```
+## Comparing and plotting raw and normalized data
+We plot the results in order to compare Infinium I and Infinium II design raw and normalized $\beta$ for both subsets. Also a ```boxplot``` is computed in order to observe changing in the distribution of the data.
+```{r step 7 plot raw, fig.width=8, fig.height=10, }
+# Mean beta raw
+par(mfrow=c(3,2), pin = c(2,2))
+plot(d_meanBetaI, col = "green", main = "Mean Beta (raw data)", xlim=c(-0.1,1.1),ylim = c(-0.5,6))
+lines(d_meanBetaII, col = "orange")
+legend("topright", legend=c("InfI", "InfII"),
+       col=c("green", "orange"), lty=1:1, cex=0.9)
+# Mean beta norm
+plot(d_meanBeta_preprocessQuantile_I,col="blue",main=" Mean Beta (normalized data)", xlim = c(-0.1,1.1), ylim = c(-0.5
+  ,6))
+lines(d_meanBeta_preprocessQuantile_II,col="red")
+legend("topright", legend=c("InfI", "InfII"),
+       col=c("blue", "red"), lty=1:1, cex=0.9)
+# sd beta raw
+plot(d_sdBetaI, col = "green", main = "StDev Beta (raw data)", xlim = c(-0.05,0.45), ylim = c(-5,90))
+lines(d_sdBetaII, col = "orange")
+legend("topright", legend=c("InfI", "InfII"),
+       col=c("green", "orange"), lty=1:1, cex=0.9)
+# sd beta norm
+plot(d_sdBeta_preprocessQuantile_I,col="blue",main="StDev Beta (normalized beta)", xlim = c(-0.05,0.45), ylim = c(-5
+  ,90))
+lines(d_sdBeta_preprocessQuantile_II,col="red")
+legend("topright", legend=c("InfI", "InfII"),
+       col=c("blue", "red"), lty=1:1, cex=0.9)
+# beta raw
+boxplot(beta,main="raw Beta boxplot")
+# beta norm
+boxplot(preprocessQuantileBeta, main = "preprocessQuantile Beta boxplot")
+dev.off()
+```
+As it is possible to observe.
+# Step 8
+Perform a PCA on the beta matrix generated in step 7. Comment the plot.
+```{r step 8, fig.width=10, fig.height=10}
+pca_results <- prcomp(t(preprocessQuantileBeta),scale=T)
+print(summary(pca_results))
+```
+```{r step 8, centered}
+plot(pca_results$x[,1], pca_results$x[,2],cex=2,pch=19, col=c("red","blue"),xlab="PC1",ylab="PC2", xlim = c(-480, 480
+), ylim = c(-350, 600))
+text(pca_results$x[,1], pca_results$x[,2],labels=rownames(pca_results$x),cex=0.9,pos=3)
+legend("topright",legend=c("DS","WT"),col=c("red","blue"),pch=19)
+```
+# Step 9
+Using the matrix of normalized beta values generated in step 7, identify differentially methylated probes between group DS and group WT using ```t-test```. Note; it can take several minutes; if you encounter any problem you can run the differential methylated analysis only on a subset of probes (for example those on chromosome 1, 18 and 21)
+```{r step 9 t-test}
+t_test_func <- function(x) {
+  t_test <- t.test(x~ csvtargets$Group)
+	return(t_test$p.value)
+}
+pValues_ttest <- apply(preprocessQuantileBeta,1, t_test_func)
+```
+# Step 10
+Apply multiple test correction and set a significant threshold of 0.05. How many probes do you identify as differentially methylated considering nominal pValues? How many after Bonferroni correction? How many after BH correction?
+
+## significant pvalues
+```{r step 10}
+NormBeta_pValues <- data.frame(preprocessQuantileBeta, pValues_ttest)
+NormBeta_pValues <- NormBeta_pValues[order(NormBeta_pValues$pValues_ttest),]
+
+pValues_raw <- NormBeta_pValues$pValues_ttest
+pValues_ttest_bonf <- p.adjust(pValues_raw,"bonferroni")
+pValues_ttest_BH <- p.adjust(pValues_raw, "BH")
+
+ttest_df <- data.frame(pValues_raw, pValues_ttest_BH, pValues_ttest_bonf)
+boxplot(ttest_df, ylim = c(-0.1, 1.1))
+
+dim(ttest_df[ttest_df$pValues_raw<=0.05,])
+dim(ttest_df[ttest_df$pValues_ttest_bonf<=0.05,])
+dim(ttest_df[ttest_df$pValues_ttest_BH<=0.05,])
+```
+# Step 11
+Produce an heatmap of the top 100 differentially methylated probes
+
+```{r step 11}
+suppressMessages(library(gplots))
+suppressMessages(library(RColorBrewer))
+heatmap = as.matrix(NormBeta_pValues[1:100, 1:8])
+colorbar <- c("orange","orange","green","green","green","orange", "orange", "green")
+palette <- suppressMessages(brewer.pal(100, name = "RdBu"))
+# complete linkage
+heatmap.2(heatmap,col= palette ,Rowv=T,Colv=T,dendrogram="both",key=T,ColSideColors=colorbar
+  ,density.info="none",trace="none",scale="none",symm=F, main = "Normalized Beta values (Method: complete linkage)")
+# single linkage
+heatmap.2(heatmap,col= palette ,Rowv=T,Colv=T,hclustfun = function(x) hclust(x,method
+  = 'single'),dendrogram ="both",key=T,ColSideColors=colorbar,density.info="none",trace="none",scale="none",symm=F, main = "Norm Beta values (Method: single linkage)")
+# averge linkage
+heatmap.2(heatmap,col= palette, Rowv=T,Colv=T,hclustfun = function(x) hclust(x,method
+  = 'average'),dendrogram ="both",key=T,ColSideColors=colorbar,density.info="none",trace="none",scale="none",symm=F, main = "Norm Beta values (Method: average linkage)")
+```
+# Step 12
+Produce a volcano plot and a Manhattan plot of the results of differential methylation analysis
+## Volcano plot
+```{r step 12 - Volcano plot}
+NormBeta <- NormBeta_pValues[, 1:8]
+dim(NormBeta)
+# DS
+NormBeta_DS <- NormBeta[, csvtargets$Group == "DS"]
+dim(NormBeta_DS)
+meanNormBeta_DS <- apply(NormBeta_DS, 1, mean)
+NormBeta_WT <- NormBeta[, csvtargets$Group == "WT"]
+dim(NormBeta_WT)
+meanNormBeta_WT <- apply(NormBeta_WT, 1, mean)
+
+delta <- meanNormBeta_DS-meanNormBeta_WT
+
+VolcPlot <- data.frame(delta, -log10(NormBeta_pValues$pValues_ttest))
+Highlight <- VolcPlot[abs(VolcPlot[,1])>0.1 & VolcPlot[,2]>(-log10(0.05)),]
+
+plot(VolcPlot[,1], VolcPlot[,2], pch=16,cex=0.5, ylab="p-Values", xlab="delta", col = brewer.pal(100, name = "RdBu")) -log10(0.05)
+abline(a=-log10(0.05),b=0,col="red")
+points(Highlight[,1], Highlight[,2],pch=16,cex=0.7,col="yellow")
+```
+## Manhattan plot
+```{r step 12 - Manhattan plot}
+suppressMessages(library(gap))
+NormBeta_pValues_inv <-data.frame(rownames(NormBeta_pValues), NormBeta_pValues)
+colnames(NormBeta_pValues_inv)[1] <- "IlmnID"
+
+# we need to annotate the data
+NormBeta_pValues_ann <- merge(NormBeta_pValues_inv, Illumina450Manifest_clean, by="IlmnID")
+head(NormBeta_pValues_ann)
+
+Manhattan <- data.frame(NormBeta_pValues_ann$CHR, NormBeta_pValues_ann$MAPINFO, NormBeta_pValues_ann$pValues_ttest)
+
+Manhattan$NormBeta_pValues_ann.CHR <- factor(Manhattan$NormBeta_pValues_ann.CHR, levels = c("1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","X","Y"))
+levels(Manhattan$NormBeta_pValues_ann.CHR)
+
+palette <- rainbow(24)
+
+mhtplot(Manhattan,control=mht.control(colors=palette))
+axis(2,cex=0.5)
+abline(a=-log10(0.05),b=0)
+```
+# **Optional**
+As DS is caused by the trisomy of chromosome 21, try also to plot the density of the methylation values of the probes mapping on chromosome 21. Do you see a very clear difference between the samples? How many differentially methylated probes do you find on chromosome 21?
+```{r Optional}
+chr21 <- Illumina450Manifest_clean[Illumina450Manifest_clean$CHR == "21",]
+chr21 <- droplevels(chr21)
+
+#WT
+Beta_21WT <- BetaWT[rownames(BetaWT) %in% chr21$IlmnID,]
+M_21WT <- M_WT[rownames(M_WT) %in% chr21$IlmnID,]
+meanBeta_21WT <- apply(Beta_21WT, 1, mean)
+meanM_21WT <- apply(M_21WT, 1, mean)
+d_meanBeta_21WT <- density(meanBeta_21WT, na.rm = T)
+d_meanM_21WT <- density(meanM_21WT, na.rm = T)
+#DS
+Beta_21DS <- BetaDS[rownames(BetaDS) %in% chr21$IlmnID,]
+M_21DS <- M_DS[rownames(M_DS) %in% chr21$IlmnID,]
+meanBeta_21DS <- apply(Beta_21DS, 1, mean)
+meanM_21DS <- apply(M_21DS, 1, mean)
+d_meanBeta_21DS <- density(meanBeta_21DS, na.rm = T)
+d_meanM_21DS <- density(meanM_21DS, na.rm = T)
+
+par(mfrow=c(1,2))
+plot(d_meanBeta_21WT, col = "green", main = "Beta value distribution CHR21")
+lines(d_meanBeta_21DS, col = "red")
+legend("topright", legend=c("WT", "DS"),
+       col=c("green", "red"), lty=1:1, cex=0.5)
+plot(d_meanM_21WT, col = "green", main = "M Value distribution CHR21")
+lines(d_meanM_21DS, col = "red")
+legend("topright", legend=c("WT", "DS"),
+       col=c("green", "red"), lty=1:1, cex=0.5)
+```
