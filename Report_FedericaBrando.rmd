@@ -87,7 +87,7 @@ Next step in the workflow is to evaluate the _quality_ of the data. We can do th
 3. __Detection of pValues__
 
 ## _QCplot_
-A QCplot is a plot in which we plot the median of the methylation signal and the median of the unmethylation signal for each sample. If the samples have good quality, high medians for both methylation and unmethylation signals, they would be found in the upper part of the plot, otherwise we find them in the lower region of the plot and we consider them as low-quality samples.
+A QCplot is a plot in which we plot the median of the methylation signal and the median of the unmethylation signal for each sample. If the samples have good quality (high medians for both methylation and unmethylation signals) they would be found in the upper part of the plot, otherwise we find them in the lower region of the plot and we consider them as low-quality samples.
 
 We use the ```getQC()``` function to extract the aforementioned median values and ```plotQC()``` function to plot them.
 ```{r step 5 QCplot, fig.align="center", fig.width=5, fig.height=5, fig.cap="**Figure 1**: QC plot", message = FALSE, warning = FALSE}
@@ -106,7 +106,9 @@ controlStripPlot(RGset, controls="NEGATIVE")
 ## _Detection of pValues_
 >**Q**: for each sample, how many probes have a detection p-value higher than the threshold ```0.05```?
 
-The detection of p-values points out the probability that the signal we are observing in the data is different from the background. The null hypotheses states that signal are equal, the alternative hypotheses states that the signals differ from each other. Indeed, small p-values indicate good position, we can reject the null hypotheses and state that the signal is different from the background with high confidence.
+The detection of p-values points out the probability that the signal we are observing in the data is different from
+ the background. The null hypotheses states that signals are equal, the alternative hypotheses states that the
+  signals differ from each other. Indeed, small p-values indicate good position, we can reject the null hypotheses and state that the signal is different from the background with high confidence.
 
 To perform this task we use ```detectionP()``` function on ```RGset``` to obtain the p-Values. We store the probes with p-Value higher than the assigned threshold in ```failed``` variable and then we inspect it to retrieve the number of those probes per sample.
 ```{r step 5 pValues detection, message = FALSE, warning = FALSE}
@@ -172,10 +174,13 @@ lines(d_meanM_DS, col='red')
 legend("topright", legend=c("WT", "DS"),
        col=c("blue", "red"), lty=1:1, cex=0.5)
 ```
-The inspection of the plot shows that the two subsets ```WT``` and ```DS``` have similar distribution. We can note a slightly higher peak for ```DS``` group for the beta values, other that that they follow the same trend.
+The inspection of the plot shows that the two subsets ```WT``` and ```DS``` have similar distribution. We can note a
+ slightly higher peak for ```DS``` group for the $\beta$ values, other than that they follow the same trend.
 
 # **Normalization**
-Data as it is right now cannot be compared, therefore we need to normalize it in order to get rid of technical variation and systematic bias. We normalize using the function ```preprocessQuantile()```, this function is a stratified quantile normalization, it stratifies the probe by region and returns the $\beta$ values normalized. We, then, compare raw data and normalize data from Infinium I and II design.
+Data as it is right now cannot be compared, therefore we need to normalize it in order to get rid of technical
+ variation and systematic bias. We normalize it using the function ```preprocessQuantile()```, this function is a
+  stratified quantile normalization, it stratifies the probe by region and returns the $\beta$ values normalized. We, then, compare raw data and normalize data from Infinium I and II design.
 
 First, we retrieve all the raw $\beta$ values from ```MSet.raw```, then we normalize data from ```RGset``` and extract normalized $\beta$ from it.
 ```{r step 7, message = FALSE, warning = FALSE}
@@ -278,7 +283,7 @@ boxplot(beta,main="raw Beta boxplot")
 # beta norm
 boxplot(preprocessQuantileBeta, main = "preprocessQuantile Beta boxplot")
 ```
-The most evident change we can observe in the plots (**Fig.4**) is between raw and normalized $\beta$ represented by the boxplot. After normalization we can note how the distributions are behaving almost identically. The only feature that behaves slightly different is the median. The plots referring to the density of the mean differ from each other in several ways: Infinium II raw mean beta distribution is shifted toward the center, while Infinium I raw mean beta distribution is less centered and closer to the edge of the graph. After normalization we can note how Infinium I mean distribution gets corrected and the first peak is reduced. Standard deviation has quite similar behaviour to the previous case: Infinium I raw standard deviation distribution has quite high peak, while Infinium II raw standard deviation distribution has a lower peak but more spread. After the normalization process with ```preprocessQuantile()``` function, we can notice a slightly increasing and shrinking of Infinium II standard deviation distribution behaviour and an evident reduction of the peak for Infinium I design. All those observed difference are due to the different chemistries that operate each design, indeed infinium I probes tend to have a larger span for beta values than Infinium II probe.
+The most evident change we can observe in the plots (**Fig.4**) is between raw and normalized $\beta$ represented by the boxplot. After normalization we can note how the distributions are behaving almost identically. The only feature that behaves slightly different is the median. The plots referring to the density of the mean differ from each other in several ways: Infinium II raw mean $\beta$ distribution is shifted toward the center, while Infinium I raw mean $\beta$ distribution is less centered and closer to the edge of the graph. After normalization we can note how Infinium I mean distribution gets corrected and the first peak is reduced. Standard deviation has quite similar behaviour to the previous case: Infinium I raw standard deviation distribution has quite high peak, while Infinium II raw standard deviation distribution has a lower peak but more spread. After the normalization process with ```preprocessQuantile()``` function, we can notice a slightly increasing and shrinking of Infinium II standard deviation distribution behaviour and an evident reduction of the peak for Infinium I design. All those observed difference are due to the different chemistries that operate each design, indeed infinium I probes tend to have a larger span for $\beta$ values than Infinium II probe.
 
 #  **PCA**
 Next step we perform a PCA on the $\beta$ matrix generated in the normalization step. Principal components analysis
@@ -370,8 +375,7 @@ Heatmaps are useful tools to observe methylation levels in samples, different co
 
 ```{r step 11 - complete heatmaps, fig.height = 8, fig.width = 8, fig.cap = "**Figure 8**: heatmap with complete linkage method", message = FALSE, warning = FALSE, results = 'hide'}
 library(gplots)
-library(RColorBrewer)
-library(gridExtra)
+# library(RColorBrewer)
 
 # taking only beta values of top 100 differentialy methylated probes
 heatmap = as.matrix(NormBeta_pValues[1:100, 1:8])
@@ -417,7 +421,8 @@ Additional plots such as **Volcano plot** and **Manhattan plot** are useful to b
 
 ## _Volcano plot_
 First we define the datasets: we extract normalized $\beta$ values produced in the normalization step and stored in
- ```NormBeta_pValues```, then we compute ```delta``` from the mean  of ```DS``` and ```WT``` groups and plot the
+ ```NormBeta_pValues```, then we compute ```delta``` from the difference between ```DS``` and ```WT``` groups mean
+  and plot the
   **Volcano plot**. In order to compare the results we decided to plot three volcano plots: one with    ```raw_pValue```, one with ```bonf_pValue``` and one with ```BH_pValue```. We highlight those probes with
     nominal p-value smaller than ```0.05``` threshold and delta > ```0.01```.
 ```{r step 12 - Volcano plot, fig.width=10, fig.height=4, fig.cap = "**Figure 11**: (from left) Volcano plot with raw p-value, bonferroni corrected p-value and BH corrected p-value", message = FALSE, warning = FALSE,results='hide'}
@@ -460,6 +465,10 @@ points(Highlight_BH[,1], Highlight_BH[,2],pch=16,cex=0.7,col="red")
 ```
 
 ## _Manhattan plot_
+First we need to annotate the data, in order to associate the p-values to the ```Illumina450Manifest_clean``` Illumina ID.
+Then we generate a dataframe containing ```CHR```, ```MAPINFO``` and p-values for the three cases: raw
+, bonferroni corrected and BH corrected. We use ```mhtplot``` to generate the results.
+
 ```{r step 12 - Manhattan plot, fig.width=10, fig.height=4, fig.cap = "**Figure 12**: (from left) Manhattan plot with raw p-value, bonferroni corrected p-value and BH corrected p-value", message = FALSE, warning = FALSE, results = 'hide'}
 library(gap)
 NormBeta_pValues_inv <-data.frame(rownames(NormBeta_pValues), NormBeta_pValues)
